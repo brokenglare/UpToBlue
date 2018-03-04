@@ -1,7 +1,11 @@
 package com.example.notcharles.uptoblue;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
@@ -12,7 +16,12 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.CompoundButton;
+import android.widget.ListAdapter;
+import android.widget.TextView;
+import android.widget.ToggleButton;
 
 import com.example.notcharles.uptoblue.dummy.DummyContent;
 import com.example.notcharles.uptoblue.dummy.DummyContent.DummyItem;
@@ -40,6 +49,19 @@ public class DeviceListFragment extends Fragment implements AbsListView.OnItemCl
         return fragment;
     }
 
+    private final BroadcastReceiver bReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                Device newDevice = new Device(device.getName(), device.getAddress(),
+                        false);
+                mAdapter.add(newDevice);
+            }
+        }
+    };
+
     /**
      * Mandatory empty constructor for the fragment manager to instantiate the
      * fragment (e.g. upon screen orientation changes).
@@ -54,41 +76,58 @@ public class DeviceListFragment extends Fragment implements AbsListView.OnItemCl
         Log.d("DEVICELIST", "Super called for DeviceListenerFragment onCreate\n");
         deviceList = new ArrayList<Device>();
 
-        // Scan for device and add to list
+        // Scan for devices and add to list
+
 
         // If there are no devices, add an empty device to be displayed.
         if (deviceList.size() == 0) {
-            deviceList.add(new Device("No Devices Found", "", "false"));
+            deviceList.add(new Device("No Devices Found", "", false));
         }
+
+        Log.d("DEVICELIST", "DeviceList populated\n");
+
+        mAdapter = new DeviceListAdapter(getActivity(), deviceList, myAdapter);
+
+        Log.d("DEVICELIST", "Adapter created\n");
     }
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_item_list, container, false);
+        ToggleButton scan = (ToggleButton)view.findViewById(R.id.DiscoverButton);
 
         // Set the adapter
-        if (view instanceof RecyclerView) {
-            Context context = view.getContext();
-            RecyclerView recyclerView = (RecyclerView) view;
-            if (mColumnCount <= 1) {
-                recyclerView.setLayoutManager(new LinearLayoutManager(context));
-            } else {
-                recyclerView.setLayoutManager(new GridLayoutManager(context, mColumnCount));
+        mListView = (AbsListView) view.findViewById(android.R.id.list);
+        ((AdapterView<ListAdapter>) mListView).setAdapter(mAdapter);
+
+        mListView.setOnItemClickListener(this);
+
+        scan.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean b) {
+                IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+                if(b) {
+                    mAdapter.clear();
+                    getActivity().registerReceiver(bReceiver, filter);
+                    myAdapter.startDiscovery();
+                }
+                else {
+                    getActivity().unregisterReceiver(bReceiver);
+                    myAdapter.cancelDiscovery();
+                }
             }
-            recyclerView.setAdapter(new MyItemRecyclerViewAdapter(DummyContent.ITEMS, mListener));
-        }
+        });
+
         return view;
     }
 
-
-    @Override
     public void onAttach(Context context) {
         super.onAttach(context);
-        if (context instanceof OnListFragmentInteractionListener) {
+        try {
             mListener = (OnListFragmentInteractionListener) context;
-        } else {
-            throw new RuntimeException(context.toString()
+        } catch(ClassCastException e) {
+            throw new ClassCastException(context.toString()
                     + " must implement OnListFragmentInteractionListener");
         }
     }
@@ -97,6 +136,23 @@ public class DeviceListFragment extends Fragment implements AbsListView.OnItemCl
     public void onDetach() {
         super.onDetach();
         mListener = null;
+    }
+
+    @Override
+    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+        Log.d("DEVICELIST", "onItemClick position: " + position + " id: " + id + "name: "
+                + deviceList.get(position).getDeviceName() + "\n");
+        if (mListener != null) {
+            mListener.onListFragmentInteraction(deviceList.get(position).getDeviceName());
+        }
+    }
+
+    public void setEmptyText(CharSequence emptyText) {
+        View emptyView = mListView.getEmptyView();
+
+        if (emptyView instanceof TextView) {
+            ((TextView) emptyView).setText(emptyText);
+        }
     }
 
     /**
@@ -111,6 +167,6 @@ public class DeviceListFragment extends Fragment implements AbsListView.OnItemCl
      */
     public interface OnListFragmentInteractionListener {
         // TODO: Update argument type and name
-        void onListFragmentInteraction(DummyItem item);
+        void onListFragmentInteraction(String id);
     }
 }
